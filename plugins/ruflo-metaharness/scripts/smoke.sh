@@ -191,6 +191,21 @@ grep -q "execCli(\[\s*'-y'\s*,\s*'metaharness@latest'" "$F" 2>/dev/null || \
 grep -q "cwd: opts" "$F" || miss="$miss no-cwd-passthrough"
 [[ -z "$miss" ]] && ok || bad "$miss"
 
+step "17z64. JSON-output gate covers similarity + audit-trend (iter 101)"
+miss=""
+# iter 88 covered 8 scripts. iter 101 extended to 10 (added similarity +
+# audit-trend with synthesized fixture inputs). Both have multi-file args
+# so they needed fixture setup in the tmpdir.
+SMOKE="$ROOT/scripts/smoke.sh"
+grep -q "similarity|--a \\\$TMP/fixA" "$SMOKE" 2>/dev/null || miss="$miss no-similarity-fixture"
+grep -q "audit-trend|--baseline \\\$TMP/fixB" "$SMOKE" 2>/dev/null || miss="$miss no-audit-trend-fixture"
+grep -q "TMP/fixA.json" "$SMOKE" 2>/dev/null || miss="$miss no-fixA-emit"
+grep -q "TMP/fixB.json" "$SMOKE" 2>/dev/null || miss="$miss no-fixB-emit"
+# Iter-101 fixtures contain similarity + audit-trend shape requirements
+grep -q '"agent_topology":\["x"\]' "$SMOKE" 2>/dev/null || miss="$miss no-fixA-agent-topology"
+grep -q '"composite":{"worst":"clean"}' "$SMOKE" 2>/dev/null || miss="$miss no-fixB-composite"
+[[ -z "$miss" ]] && ok || bad "$miss"
+
 step "17z63. ADR-150 reflects iters 83-99 + 100-iter milestone (iter 100)"
 miss=""
 ADR="$ROOT/../../v3/docs/adr/ADR-150-metaharness-integration-surfaces.md"
@@ -411,7 +426,14 @@ miss=""
 # downstream `node -e JSON.parse(readFileSync(...))` step fails in CI.
 TMP=$(mktemp -d)
 # Each script needs minimal valid args for the JSON branch.
-# Layout: name|args-with-{tmpdir}-placeholder
+# iter 101 — added audit-trend + similarity (require fixture inputs).
+# Synthesize minimal valid JSON fixtures in the tmpdir for them.
+cat > "$TMP/fixA.json" <<'JSON'
+{"score":{"harnessFit":80,"compileConfidence":90,"taskCoverage":70,"toolSafety":85,"memoryUsefulness":50,"estCostPerRunUsd":0.04,"recommendedMode":"CLI","archetype":"a","template":"t"},"genome":{"repo_type":"node_mcp_ci","agent_topology":["x"],"risk_score":0.3,"test_confidence":0.7,"publish_readiness":0.6}}
+JSON
+cat > "$TMP/fixB.json" <<'JSON'
+{"startedAt":"2026-06-17T00:00:00Z","composite":{"worst":"clean"},"components":{"oiaManifest":{},"threatModel":{},"mcpScan":{"json":{"findings":[]}}},"fingerprint":{"score":{"harnessFit":80,"recommendedMode":"CLI"},"genome":{"repo_type":"node_mcp_ci","agent_topology":["x"]}}}
+JSON
 SCRIPT_TESTS=(
   "oia-audit|--dry-run --format json"
   "score|--path . --format json"
@@ -421,6 +443,8 @@ SCRIPT_TESTS=(
   "audit-list|--format json"
   "bench-similarity|--iters 1000 --format json"
   "bench-parse-mcp-scan|--iters 1000 --format json"
+  "similarity|--a $TMP/fixA.json --b $TMP/fixA.json --format json"
+  "audit-trend|--baseline $TMP/fixB.json --current $TMP/fixB.json --format json"
 )
 for entry in "${SCRIPT_TESTS[@]}"; do
   name="${entry%%|*}"
