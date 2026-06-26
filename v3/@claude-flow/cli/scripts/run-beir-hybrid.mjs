@@ -56,6 +56,7 @@ function mrr(retrieved, qrels, k) { for (let i = 0; i < Math.min(retrieved.lengt
 function recall(retrieved, qrels, k) { const tot = [...qrels.values()].filter((v) => v > 0).length; if (tot === 0) return 0; let h = 0; for (let i = 0; i < Math.min(retrieved.length, k); i++) if ((qrels.get(retrieved[i]) ?? 0) > 0) h++; return h / tot; }
 function cosine(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
 function adaptiveRrfK(corpusSize) { return corpusSize < 20000 ? 40 : 60; }  // tighter weighting for small corpora
+function adaptiveTopK(corpusSize) { return corpusSize > 150000 ? 2000 : corpusSize > 50000 ? 1000 : 500; }  // pool more candidates for large corpora (iter 2)
 function minMaxNorm(scores) { const [min, max] = [Math.min(...scores), Math.max(...scores)]; return scores.map((s) => max === min ? 0.5 : (s - min) / (max - min)); }
 
 function loadJsonl(path) { return readFileSync(path, 'utf-8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); }
@@ -78,11 +79,12 @@ async function main() {
   const corpus = loadJsonl(join(DATA_DIR, 'corpus.jsonl'));
   const RRF_K = adaptiveRrfK(corpus.length);  // adaptive k based on corpus size (iter 1: normalize scores + tighter k for small corpora)
 
-  console.log(`# BEIR ${dataset} — hybrid RRF${RERANK ? ' + cross-encoder rerank' : ''} (ADR-087 + iter1)`);
+  console.log(`# BEIR ${dataset} — hybrid RRF${RERANK ? ' + cross-encoder rerank' : ''} (ADR-087 + iter1 + iter2)`);
   console.log(`Data:  ${DATA_DIR}`);
   console.log(`Dense: ${BGE_MODEL}`);
   console.log(`RRF k: ${RRF_K} (adaptive for corpus size ${corpus.length})${RERANK ? `, rerank top-${RERANK_TOP_K}` : ''}`);
   console.log(`Normalization: min-max before RRF fusion`);
+  console.log(`Candidate pool: top-${adaptiveTopK(corpus.length)} per system (iter 2: scaled for large corpora)`);
   const queries = loadJsonl(join(DATA_DIR, 'queries.jsonl'));
   const qrels = loadQrels(join(DATA_DIR, 'qrels/test.tsv'));
   console.log(`Corpus: ${corpus.length} docs · Test qrels: ${qrels.size}`);
@@ -168,7 +170,8 @@ async function main() {
 
     // §3 — RRF fusion: normalize scores first, then score = sum over systems of 1/(k + rank).
     // Min-max normalize each system's scores to [0,1] for fair fusion (iter 1 optimization).
-    const TOP_PER_SYSTEM = 500;
+    // For large corpora, pull more candidates before fusion (iter 2 optimization).
+    const TOP_PER_SYSTEM = adaptiveTopK(corpus.length);
     const denseTopK = denseScored.slice(0, Math.min(TOP_PER_SYSTEM, denseScored.length));
     const bm25TopK = bm25Scored.slice(0, Math.min(TOP_PER_SYSTEM, bm25Scored.length)).filter((s) => s.score > 0);
     const denseScoresNorm = minMaxNorm(denseTopK.map((s) => s.score));
