@@ -17,7 +17,7 @@ Market data commands:
 1. Recall recent OHLCV data for `<symbol>` from the `market-data` namespace
 2. Scan for single-candle patterns (doji, hammer) and multi-candle patterns (engulfing, morning star)
 3. Classify each detection with pattern name, type (reversal/continuation), and reliability score
-4. Store detected patterns via `mcp__claude-flow__agentdb_pattern-store`
+4. Store detected patterns via the dual-path pattern (see skills/market-pattern/SKILL.md): `mcp__claude-flow__agentdb_pattern-store` (typed, ReasoningBank-routed — do NOT pass `namespace`) AND `mcp__claude-flow__memory_store --namespace market-patterns` (namespace-routed; `agentdb_pattern-*` ignores namespace strings)
 5. Display: pattern name, date, direction (bullish/bearish), reliability, candle range
 
 **`market search <pattern-name>`** -- Search for historical occurrences of a pattern.
